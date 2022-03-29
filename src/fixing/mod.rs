@@ -1,6 +1,6 @@
 pub mod list_roots;
 
-use std::path::Path;
+use std::{path::Path, env};
 use std::process::Command;
 use crate::common::{Distribution, CallError, ReinstallError};
 use thiserror::Error;
@@ -155,8 +155,14 @@ mod uefi {
 }
 
 fn run_reinstall<P>(mnt_dir: P, distr: &Distribution) -> Result<(), ReinstallError>  where P:AsRef<Path> {
+    let exe_path = if let Ok(appdir) = env::var("APPDIR") {
+        Path::new(&appdir).join("reinstall_bootloader")
+    } else {
+        Path::new("target/release/reinstall_bootloader").to_path_buf()
+    };
+    
     ReinstallError::from_res(
-        Command::new("reinstall_bootloader").args(&[
+        Command::new(exe_path).args(&[
             mnt_dir.as_ref().to_str().unwrap(),
             &distr.to_string()
         ]).status().unwrap()

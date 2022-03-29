@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str;
@@ -8,7 +9,9 @@ use crate::fixing::Error;
 
 use regex::Regex;
 use serde::Deserialize;
+use sys_mount::{Mount, MountFlags, SupportedFilesystems, Unmount,  UnmountDrop, UnmountFlags};
 
+#[derive(Debug)]
 pub struct RootData {
     pub main_dev: PathBuf,
     pub subvol: Option<String>,
@@ -38,7 +41,7 @@ struct LsBlkBlockDevice {
 const DISTRO_NAME_REGEX: &str = r"^NAME=(.*)$";
 const DISTRO_VERSION_REGEX: &str = r"^VERSION=(.*)$";
 
-pub fn list_roots() -> Result<Vec<RootData>, Error> {
+pub fn list_roots<P>(mnt_point: P) -> Result<Vec<RootData>, Error> where P:AsRef<Path> {
     let out: LsBlk = 
         serde_json::from_str( 
             str::from_utf8(
@@ -54,8 +57,9 @@ pub fn list_roots() -> Result<Vec<RootData>, Error> {
             .filter(is_device)
             .map(get_children)
             .flatten()
-            .map(examine_disk)
-            .filter(|d|d.system.is_some())
+            .map(|d| examine_disk(d, &mnt_point))
+            .filter(|d|if let Ok(d2) = d {d2.system.is_some()} else{false})
+            .map(|d| d.unwrap())
             .map(transform_to_data)
             .collect();
 
@@ -84,27 +88,28 @@ fn get_children(blk: LsBlkBlockDevice) -> Vec<LsBlkBlockDevice> {
     
 }
 
-fn mount<P1, P2>(dev: P1, mnt_point: P2) -> Result<MountGuard, std::io::Error> where
+fn mount<P1, P2>(dev: P1, mnt_point: P2) -> Result<UnmountDrop<Mount>, std::io::Error> where
     P1: AsRef<Path>,
     P2: AsRef<Path> {
-        
-    Command::new("/usr/bin/sudo").args(&["mount",
-        dev.as_ref().to_str().unwrap(),
-        mnt_point.as_ref().to_str().unwrap()
-    ]).status().unwrap();
+            
+    // Fetch a list of supported file systems.
+    // When mounting, a file system will be selected from this.
+    let supported = SupportedFilesystems::new().unwrap();
+    println!("mnt_point: {:?}", mnt_point.as_ref());
+    println!("dev: {:?}", dev.as_ref());
 
-    Ok(MountGuard{dev: dev.as_ref().to_path_buf()})
+    // Attempt to mount the src device to the dest directory.
+    let mount_result = Mount::new(
+        dev,
+        mnt_point,
+        &supported,
+        MountFlags::empty(),
+        None
+    )?;
+
+    Ok(mount_result.into_unmount_drop(UnmountFlags::DETACH))
 }
 
-struct MountGuard {
-    dev: PathBuf
-}
-
-impl Drop for MountGuard {
-    fn drop(&mut self) {
-        Command::new("/usr/bin/sudo").args(&["umount", self.dev.to_str().unwrap()]).status().unwrap();
-    }
-}
 
 struct SystemData {
     pub subvol: Option<String>,
@@ -117,9 +122,9 @@ struct DiskData {
     pub blk: LsBlkBlockDevice
 }
 
-fn examine_disk(blk: LsBlkBlockDevice) -> DiskData {
+fn examine_disk<P>(blk: LsBlkBlockDevice, mnt_point: P) -> Result<DiskData, io::Error> where P: AsRef<Path> {
     let dev = Path::new("/dev").join(&blk.name);
-    let mnt_point = Path::new("/mnt/test");
+    let mnt_point = mnt_point.as_ref();
 
     // As soon as this guard is dropped, the mount is unmounted
     let _mnt_grd = mount(&dev, mnt_point).unwrap();
@@ -135,14 +140,12 @@ fn examine_disk(blk: LsBlkBlockDevice) -> DiskData {
 
     // Try to find a subvolume
     if !is_root && is_btrfs {
-        for elem in fs::read_dir(mnt_point).unwrap() {
-            if let Ok(elem) = elem {
-                if let Ok(f_type) =elem.file_type() {
-                    if f_type.is_dir() && elem.path().join("etc/fstab").exists() {
-                        is_root = true;
-                        subvol = Some(elem.file_name().to_str().unwrap().to_string());
-                        break;
-                    }
+        for elem in fs::read_dir(mnt_point).unwrap().flatten() {            
+            if let Ok(f_type) =elem.file_type() {
+                if f_type.is_dir() && elem.path().join("etc/fstab").exists() {
+                    is_root = true;
+                    subvol = Some(elem.file_name().to_str().unwrap().to_string());
+                    break;
                 }
             }
         }
@@ -197,11 +200,12 @@ fn examine_disk(blk: LsBlkBlockDevice) -> DiskData {
     };
 
 
-
-    DiskData {
-        system,
-        blk
-    }
+    Ok(
+        DiskData {
+            system,
+            blk
+        }
+    )
 }
 
 fn transform_to_data(dsk: DiskData) -> RootData {

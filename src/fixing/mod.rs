@@ -15,18 +15,20 @@ pub enum Error {
     CallError(#[from] CallError),
 
     #[error("Target is not supported yet")]
-    UnsupportedDistribution
+    UnsupportedDistribution,
+    
+    #[error("{0}")]
+    IoError(#[from] std::io::Error),
 }
 
 mod chroot {
-    use std::fs::create_dir_all;
     use std::io::Read;
     use std::path::Path;
     use std::process::Command;
 
     use regex::Regex;
 
-    use crate::{common::{CallError, Distribution}, fixing::Error};
+    use crate::{common::{CallError, Distribution, try_create_dir}, fixing::Error};
 
     const BOOT_REG: &str = r"([UUIDa-fA-F0-9-=]+)\s+\\/boot\s+(?:[^ ]*)";
     const UUID_REG : &str = "UUID=([a-fA-F0-9-=]+)";
@@ -35,9 +37,7 @@ mod chroot {
         let mnt_dir = mnt_dir.as_ref();
         let dev = dev.as_ref();
         
-        if !mnt_dir.exists() {
-            create_dir_all(mnt_dir).unwrap();
-        }
+        try_create_dir(mnt_dir)?;
         
         let mut mnt = Command::new("/usr/bin/mount");
             mnt.args(&[dev.to_str().unwrap(), mnt_dir.to_str().unwrap()]);
@@ -106,16 +106,16 @@ mod uefi {
         let uefi_dev = uefi_dev.as_ref().to_str().unwrap();
         let device = &uefi_dev[..uefi_dev.len() - 1];
         let partition = &uefi_dev[uefi_dev.len() - 1..];
-        CallError::from_res(Command::new("/usr/bin/sudo").args(&[
-            "efibootmgr", "-c", "-w", "-L", name, "-d", device, "-p", partition, "-l", path
+        CallError::from_res(Command::new("/usr/bin/efibootmgr").args(&[
+            "-c", "-w", "-L", name, "-d", device, "-p", partition, "-l", path
         ]).status())?;
         Ok(())
     }
 
     pub fn look_for_dev() -> Result<PathBuf, Error> {
         let out = CallError::from_output(
-            Command::new("/usr/bin/sudo")
-            .args(&["fdisk", "-l"])
+            Command::new("/usr/bin/fdisk")
+            .arg("-l")
             .env("LANG", "C") // Force english output
             .output()
         )?;
@@ -137,8 +137,8 @@ mod uefi {
 
     pub fn check_bootloader_present<P>(efi_path: P) -> Result<bool, Error> where P: AsRef<Path> {
         let out = CallError::from_output(
-            Command::new("/usr/bin/sudo")
-            .args(&["efibootmgr", "-v"])
+            Command::new("/usr/bin/efibootmgr")
+            .arg("-v")
             .env("LANG", "C") // Force english output
             .output()
         )?;

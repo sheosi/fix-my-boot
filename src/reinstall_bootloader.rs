@@ -18,8 +18,8 @@ pub fn change_to_chroot<P1>(mnt_dir: P1) -> Result<(), ReinstallError> where P1:
 pub fn reinstall(distro: &Distribution) -> Result<(), ReinstallError> {
     match distro {
         Distribution::Fedora => {
-            CallError::from_res(Command::new("/usr/bin/sudo")
-                .args(&["dnf", "install", "-y", "grub2-efi", "shim"]).status()).map_err(|e|e.into())
+            CallError::from_res(Command::new("/usr/bin/dnf")
+                .args(&["install", "-y", "grub2-efi", "shim"]).status()).map_err(|e|e.into())
         }
         Distribution::Unknown => {
             /*CallError::from_res(Command::new("/usr/bin/grub2-install")

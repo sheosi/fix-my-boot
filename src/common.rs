@@ -1,4 +1,5 @@
 use std::io;
+use std::path::Path;
 use std::process::{ExitStatus, Output};
 use std::str::FromStr;
 
@@ -6,6 +7,7 @@ use num_traits::FromPrimitive;
 use num_derive::FromPrimitive;
 use thiserror::Error;
 
+#[derive(Debug)]
 pub enum Distribution {
     Fedora,
     Unknown
@@ -105,4 +107,12 @@ impl From<CallError> for ReinstallError {
             CallError::OtherError => ReinstallError::OtherError
         }
     }
+}
+
+pub fn try_create_dir<P>(path: P) -> Result<(), io::Error> where P: AsRef<Path> {
+    let path = path.as_ref();
+    if !path.exists() {
+        std::fs::create_dir(path)?;
+    }
+    Ok(())
 }

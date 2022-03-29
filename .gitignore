@@ -1,1 +1,7 @@
+# Rust
 /target
+
+# AppImage
+/squashfs-root
+/libs
+*.AppImage

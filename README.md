@@ -1,5 +1,24 @@
 # Fix my boot
 
+## Cloning
+This uses git [LFS](https://git-lfs.github.com/) which means it needs to be
+cloned with that installed beforehand.
+
+First install git LFS, for *Debian/Ubuntu* it is:
+
+```shell
+sudo apt install git-lfs
+```
+
+On *Fedora*:    
+
+```shell
+sudo dnf install git-lfs
+```
+
+## Description
+
+
 How many times has your boot broken? It's something so common to happen and despite the fact it is, it requires several complex commands (like having to chroot into the setup) and changing the UEFI.
 
 "Fix my boot" is a tool that will fix boot-related problems in Linux systems, namely:
